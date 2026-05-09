@@ -1,217 +1,273 @@
+const STORAGE_KEY = "professional-notes";
 
-        let notes = [];
-        let currentNoteId = null;
-        let isEditing = false;
+let notes = [];
+let currentNoteId = null;
+let saveTimer = null;
+let toastTimer = null;
 
-        // Initialize the app
-        function initApp() {
-            // Load sample notes
-            notes = [
-                {
-                    id: 1,
-                    title: 'Welcome to Notes',
-                    content: 'This is your first note! You can edit this note or create new ones using the "New" button. The app automatically saves your changes.',
-                    lastModified: new Date().toISOString()
-                },
-                {
-                    id: 2,
-                    title: 'Meeting Notes',
-                    content: 'Project timeline discussion:\n\n• Phase 1: Research and planning\n• Phase 2: Development\n• Phase 3: Testing and deployment\n\nAction items:\n- Follow up on budget approval\n- Schedule next meeting\n- Prepare presentation materials',
-                    lastModified: new Date(Date.now() - 86400000).toISOString()
-                },
-                {
-                    id: 3,
-                    title: 'Ideas & Inspiration',
-                    content: 'Random thoughts and ideas:\n\n💡 App improvement ideas\n💡 Blog post topics\n💡 Weekend project concepts\n\nRemember to review these weekly and act on the most promising ones.',
-                    lastModified: new Date(Date.now() - 172800000).toISOString()
-                }
-            ];
+const els = {};
 
-            renderNotes();
-            selectNote(notes[0].id);
-            setupEventListeners();
+function initApp() {
+    cacheElements();
+    notes = loadNotes();
+    bindEvents();
+    renderNotes();
+
+    if (notes.length > 0) {
+        selectNote(notes[0].id);
+    } else {
+        showEmptyState();
+    }
+}
+
+function cacheElements() {
+    els.sidebar = document.getElementById("sidebar");
+    els.searchInput = document.getElementById("searchInput");
+    els.notesContainer = document.getElementById("notesContainer");
+    els.noteCount = document.getElementById("noteCount");
+    els.titleInput = document.getElementById("noteTitleInput");
+    els.contentInput = document.getElementById("noteContent");
+    els.emptyState = document.getElementById("emptyState");
+    els.saveStatus = document.getElementById("saveStatus");
+    els.wordCount = document.getElementById("wordCount");
+    els.toast = document.getElementById("toast");
+    els.mobileToggle = document.querySelector(".mobile-toggle");
+}
+
+function bindEvents() {
+    els.searchInput.addEventListener("input", () => renderNotes(els.searchInput.value));
+    els.titleInput.addEventListener("input", scheduleAutoSave);
+    els.contentInput.addEventListener("input", () => {
+        updateWordCount();
+        scheduleAutoSave();
+    });
+
+    document.addEventListener("click", (event) => {
+        const clickedOutsideSidebar = !els.sidebar.contains(event.target);
+        const clickedOutsideToggle = !els.mobileToggle.contains(event.target);
+
+        if (window.innerWidth <= 860 && clickedOutsideSidebar && clickedOutsideToggle && els.sidebar.classList.contains("show")) {
+            toggleSidebar(false);
         }
+    });
 
-        function setupEventListeners() {
-            // Search functionality
-            document.getElementById('searchInput').addEventListener('input', function(e) {
-                const query = e.target.value.toLowerCase();
-                renderNotes(query);
-            });
-
-            // Auto-save on content change
-            document.getElementById('noteContent').addEventListener('input', function() {
-                if (currentNoteId && !isEditing) {
-                    isEditing = true;
-                    setTimeout(autoSave, 1000);
-                }
-            });
-
-            // Auto-save on title change
-            document.getElementById('noteTitleInput').addEventListener('input', function() {
-                if (currentNoteId && !isEditing) {
-                    isEditing = true;
-                    setTimeout(autoSave, 1000);
-                }
-            });
-
-            // Close sidebar when clicking outside on mobile
-            document.addEventListener('click', function(e) {
-                const sidebar = document.getElementById('sidebar');
-                const toggleBtn = document.querySelector('.mobile-toggle');
-                
-                if (window.innerWidth <= 768 && 
-                    !sidebar.contains(e.target) && 
-                    !toggleBtn.contains(e.target) && 
-                    sidebar.classList.contains('show')) {
-                    toggleSidebar();
-                }
-            });
+    window.addEventListener("resize", () => {
+        if (window.innerWidth > 860) {
+            toggleSidebar(false);
         }
+    });
+}
 
-        function renderNotes(searchQuery = '') {
-            const container = document.getElementById('notesContainer');
-            const filteredNotes = notes.filter(note => 
-                note.title.toLowerCase().includes(searchQuery) ||
-                note.content.toLowerCase().includes(searchQuery)
-            );
+function loadNotes() {
+    const storedNotes = localStorage.getItem(STORAGE_KEY);
 
-            container.innerHTML = filteredNotes.map(note => {
-                const preview = note.content.length > 100 
-                    ? note.content.substring(0, 100) + '...' 
-                    : note.content;
-                
-                const formattedDate = new Date(note.lastModified).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-
-                return `
-                    <div class="note-item ${currentNoteId === note.id ? 'active' : ''}" 
-                         onclick="selectNote(${note.id})">
-                        <div class="note-title">${note.title}</div>
-                        <div class="note-preview">${preview}</div>
-                        <div class="note-date">${formattedDate}</div>
-                    </div>
-                `;
-            }).join('');
+    if (storedNotes) {
+        try {
+            return JSON.parse(storedNotes);
+        } catch {
+            localStorage.removeItem(STORAGE_KEY);
         }
+    }
 
-        function selectNote(noteId) {
-            currentNoteId = noteId;
-            const note = notes.find(n => n.id === noteId);
-            
-            if (note) {
-                document.getElementById('noteTitleInput').value = note.title;
-                document.getElementById('noteContent').value = note.content;
-                document.getElementById('noteContent').style.display = 'block';
-                document.getElementById('emptyState').style.display = 'none';
-                
-                // Update active state in sidebar
-                renderNotes(document.getElementById('searchInput').value);
-                
-                // Close sidebar on mobile after selecting
-                if (window.innerWidth <= 768) {
-                    document.getElementById('sidebar').classList.remove('show');
-                }
-            }
+    return [
+        {
+            id: Date.now(),
+            title: "Welcome to Notes",
+            content: "This is your writing space. Create notes, search quickly, and your changes will be saved in this browser automatically.",
+            lastModified: new Date().toISOString()
+        },
+        {
+            id: Date.now() - 1,
+            title: "Project Plan",
+            content: "Goals\n- Finalize design direction\n- Build the first version\n- Test on mobile and desktop\n\nNext step: turn the rough ideas into clear tasks.",
+            lastModified: new Date(Date.now() - 86400000).toISOString()
         }
+    ];
+}
 
-        function createNewNote() {
-            const newNote = {
-                id: Date.now(),
-                title: 'New Note',
-                content: '',
-                lastModified: new Date().toISOString()
-            };
-            
-            notes.unshift(newNote);
-            renderNotes();
-            selectNote(newNote.id);
-            
-            // Focus on title input
-            document.getElementById('noteTitleInput').focus();
-            document.getElementById('noteTitleInput').select();
-        }
+function persistNotes() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+}
 
-        function saveNote() {
-            if (!currentNoteId) return;
-            
-            const note = notes.find(n => n.id === currentNoteId);
-            if (note) {
-                note.title = document.getElementById('noteTitleInput').value || 'Untitled Note';
-                note.content = document.getElementById('noteContent').value;
-                note.lastModified = new Date().toISOString();
-                
-                renderNotes(document.getElementById('searchInput').value);
-                showNotification('Note saved successfully!');
-                isEditing = false;
-            }
-        }
+function renderNotes(searchQuery = "") {
+    const query = searchQuery.trim().toLowerCase();
+    const filteredNotes = notes.filter((note) => {
+        return note.title.toLowerCase().includes(query) || note.content.toLowerCase().includes(query);
+    });
 
-        function autoSave() {
-            if (isEditing && currentNoteId) {
-                saveNote();
-            }
-        }
+    els.noteCount.textContent = `${notes.length} ${notes.length === 1 ? "note" : "notes"}`;
 
-        function deleteNote() {
-            if (!currentNoteId) return;
-            
-            if (confirm('Are you sure you want to delete this note?')) {
-                notes = notes.filter(n => n.id !== currentNoteId);
-                
-                if (notes.length > 0) {
-                    selectNote(notes[0].id);
-                } else {
-                    currentNoteId = null;
-                    document.getElementById('noteTitleInput').value = '';
-                    document.getElementById('noteContent').value = '';
-                    document.getElementById('noteContent').style.display = 'none';
-                    document.getElementById('emptyState').style.display = 'flex';
-                }
-                
-                renderNotes();
-                showNotification('Note deleted successfully!');
-            }
-        }
+    if (filteredNotes.length === 0) {
+        els.notesContainer.innerHTML = `
+            <div class="empty-list">
+                <div class="note-title">No notes found</div>
+                <div class="note-preview">Try a different search or create a new note.</div>
+            </div>
+        `;
+        return;
+    }
 
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('show');
-        }
-
-        function showNotification(message) {
-            // Create a simple notification
-            const notification = document.createElement('div');
-            notification.textContent = message;
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: #10b981;
-                color: white;
-                padding: 12px 20px;
-                border-radius: 8px;
-                z-index: 1001;
-                animation: fadeInUp 0.3s ease;
-                box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
-            `;
-            
-            document.body.appendChild(notification);
-            
-            setTimeout(() => {
-                notification.remove();
-            }, 3000);
-        }
-
-        // Initialize the app when the page loads
-        document.addEventListener('DOMContentLoaded', initApp);
-
-        // Handle window resize
-        window.addEventListener('resize', function() {
-            if (window.innerWidth > 768) {
-                document.getElementById('sidebar').classList.remove('show');
-            }
+    els.notesContainer.innerHTML = filteredNotes.map((note) => {
+        const preview = note.content.trim() || "No content yet";
+        const formattedDate = new Date(note.lastModified).toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit"
         });
+
+        return `
+            <button class="note-item ${currentNoteId === note.id ? "active" : ""}" type="button" onclick="selectNote(${note.id})">
+                <div class="note-title">${escapeHtml(note.title || "Untitled note")}</div>
+                <div class="note-preview">${escapeHtml(preview)}</div>
+                <div class="note-date">${formattedDate}</div>
+            </button>
+        `;
+    }).join("");
+}
+
+function selectNote(noteId) {
+    const note = notes.find((item) => item.id === noteId);
+
+    if (!note) {
+        showEmptyState();
+        return;
+    }
+
+    currentNoteId = noteId;
+    els.titleInput.value = note.title;
+    els.contentInput.value = note.content;
+    els.contentInput.style.display = "block";
+    els.emptyState.style.display = "none";
+    setSaveStatus("All changes saved");
+    updateWordCount();
+    renderNotes(els.searchInput.value);
+
+    if (window.innerWidth <= 860) {
+        toggleSidebar(false);
+    }
+}
+
+function createNewNote() {
+    const newNote = {
+        id: Date.now(),
+        title: "Untitled note",
+        content: "",
+        lastModified: new Date().toISOString()
+    };
+
+    notes.unshift(newNote);
+    persistNotes();
+    els.searchInput.value = "";
+    selectNote(newNote.id);
+    els.titleInput.focus();
+    els.titleInput.select();
+    showToast("New note created");
+}
+
+function saveNote(showToastOnSave = false) {
+    if (!currentNoteId) {
+        return;
+    }
+
+    const note = notes.find((item) => item.id === currentNoteId);
+
+    if (!note) {
+        return;
+    }
+
+    note.title = els.titleInput.value.trim() || "Untitled note";
+    note.content = els.contentInput.value;
+    note.lastModified = new Date().toISOString();
+
+    notes = notes.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+    persistNotes();
+    renderNotes(els.searchInput.value);
+    setSaveStatus("All changes saved");
+
+    if (showToastOnSave) {
+        showToast("Note saved");
+    }
+}
+
+function scheduleAutoSave() {
+    if (!currentNoteId) {
+        return;
+    }
+
+    window.clearTimeout(saveTimer);
+    setSaveStatus("Saving...");
+    saveTimer = window.setTimeout(() => saveNote(false), 500);
+}
+
+function deleteNote() {
+    if (!currentNoteId) {
+        return;
+    }
+
+    const currentNote = notes.find((item) => item.id === currentNoteId);
+    const confirmed = window.confirm(`Delete "${currentNote?.title || "this note"}"?`);
+
+    if (!confirmed) {
+        return;
+    }
+
+    notes = notes.filter((item) => item.id !== currentNoteId);
+    persistNotes();
+    showToast("Note deleted");
+
+    if (notes.length > 0) {
+        selectNote(notes[0].id);
+    } else {
+        showEmptyState();
+    }
+
+    renderNotes(els.searchInput.value);
+}
+
+function showEmptyState() {
+    currentNoteId = null;
+    els.titleInput.value = "";
+    els.contentInput.value = "";
+    els.contentInput.style.display = "none";
+    els.emptyState.style.display = "flex";
+    setSaveStatus("No note selected");
+    updateWordCount();
+}
+
+function toggleSidebar(forceState) {
+    const shouldShow = typeof forceState === "boolean" ? forceState : !els.sidebar.classList.contains("show");
+    els.sidebar.classList.toggle("show", shouldShow);
+    els.mobileToggle.setAttribute("aria-expanded", String(shouldShow));
+}
+
+function updateWordCount() {
+    const words = els.contentInput.value.trim().split(/\s+/).filter(Boolean).length;
+    els.wordCount.textContent = `${words} ${words === 1 ? "word" : "words"}`;
+}
+
+function setSaveStatus(message) {
+    els.saveStatus.textContent = message;
+    els.saveStatus.style.color = message === "Saving..." ? "var(--success)" : "var(--muted)";
+}
+
+function showToast(message) {
+    window.clearTimeout(toastTimer);
+    els.toast.textContent = message;
+    els.toast.classList.add("show");
+
+    toastTimer = window.setTimeout(() => {
+        els.toast.classList.remove("show");
+    }, 2200);
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+document.addEventListener("DOMContentLoaded", initApp);
